@@ -1,12 +1,14 @@
 use crate::{
     as_rc, client::QueryOptions, AsKey, DataSignal, Fetcher, QueryClient, QueryData, Status,
 };
-use futures_timer::Delay;
+use fluvio_wasm_timer::Delay;
 use std::any::Any;
 use std::{future::Future, rc::Rc};
 use sycamore::{
     futures::spawn_local,
-    reactive::{create_memo, create_rc_signal, create_ref, use_context, ReadSignal, Scope, Signal},
+    reactive::{
+        create_memo, create_rc_signal, create_ref, use_context, RcSignal, ReadSignal, Scope, Signal,
+    },
 };
 
 /// The struct representing a query
@@ -36,6 +38,7 @@ pub struct Query<'a, T, E, F: Fn()> {
     /// A function to trigger a refetch of the query and all queries with the
     /// same key.
     pub refetch: &'a F,
+    pub debug: RcSignal<String>,
 }
 
 impl QueryClient {
@@ -86,7 +89,7 @@ impl QueryClient {
                 let mut res = fetcher().await;
                 let mut retries = 0;
                 while res.is_err() && retries < options.retries {
-                    Delay::new((options.retry_fn)(retries)).await;
+                    Delay::new((options.retry_fn)(retries)).await.unwrap();
                     res = fetcher().await;
                     retries += 1;
                 }
@@ -181,11 +184,14 @@ where
     let key = key.as_key();
 
     let client = use_context::<Rc<QueryClient>>(cx).clone();
+    let debug = create_rc_signal("".to_string());
     let (data, status, fetcher) = if let Some(query) = client.find_query(&key) {
+        debug.modify().push_str("\nQuery already exists");
         query
     } else {
+        debug.modify().push_str("\nCreating query");
         let data: Rc<DataSignal> = as_rc(create_rc_signal(QueryData::Loading));
-        let status = as_rc(create_rc_signal(Status::Fetching));
+        let status = as_rc(create_rc_signal(Status::Idle));
         let fetcher: Fetcher = Rc::new(move || {
             let fut = fetcher();
             Box::pin(async move {
@@ -219,5 +225,6 @@ where
         data,
         status,
         refetch,
+        debug,
     }
 }

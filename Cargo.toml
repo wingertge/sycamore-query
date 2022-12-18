@@ -9,4 +9,4 @@ edition = "2021"
 sycamore = { version = "0.8", features = ["suspense"] }
 fnv = "1"
 weak-table = "0.3"
-futures-timer = "3"
+fluvio-wasm-timer = "0.2"

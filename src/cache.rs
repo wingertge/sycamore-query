@@ -1,10 +1,7 @@
 use crate::client::ClientOptions;
+use fluvio_wasm_timer::Instant;
 use fnv::FnvHashMap;
-use std::{
-    any::Any,
-    rc::Rc,
-    time::{Duration, Instant},
-};
+use std::{any::Any, rc::Rc, time::Duration};
 
 type Cache = FnvHashMap<Vec<u64>, CacheEntry>;
 
