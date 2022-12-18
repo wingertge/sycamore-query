@@ -6,9 +6,7 @@ use std::any::Any;
 use std::{future::Future, rc::Rc};
 use sycamore::{
     futures::spawn_local,
-    reactive::{
-        create_memo, create_rc_signal, create_ref, use_context, RcSignal, ReadSignal, Scope, Signal,
-    },
+    reactive::{create_memo, create_rc_signal, create_ref, use_context, ReadSignal, Scope, Signal},
 };
 
 /// The struct representing a query
@@ -38,7 +36,6 @@ pub struct Query<'a, T, E, F: Fn()> {
     /// A function to trigger a refetch of the query and all queries with the
     /// same key.
     pub refetch: &'a F,
-    pub debug: RcSignal<String>,
 }
 
 impl QueryClient {
@@ -46,9 +43,34 @@ impl QueryClient {
         &self,
         key: &[u64],
     ) -> Option<(Rc<DataSignal>, Rc<Signal<Status>>, Fetcher)> {
-        let data = self.data_signals.read().unwrap().get(key)?;
-        let status = self.status_signals.read().unwrap().get(key)?;
+        let data = self.data_signals.read().unwrap().get(key);
+        let status = self.status_signals.read().unwrap().get(key);
         let fetcher = self.fetchers.read().unwrap().get(key)?.clone();
+        let (data, status) = match (data, status) {
+            (None, None) => None,
+            (None, Some(status)) => {
+                let data = if let Some(data) = self.cache.read().unwrap().get(key) {
+                    QueryData::Ok(data)
+                } else {
+                    QueryData::Loading
+                };
+                let data = as_rc(create_rc_signal(data));
+                self.data_signals
+                    .write()
+                    .unwrap()
+                    .insert(key.to_vec(), data.clone());
+                Some((data, status))
+            }
+            (Some(data), None) => {
+                let status = as_rc(create_rc_signal(Status::Success));
+                self.status_signals
+                    .write()
+                    .unwrap()
+                    .insert(key.to_vec(), status.clone());
+                Some((data, status))
+            }
+            (Some(data), Some(status)) => Some((data, status)),
+        }?;
         Some((data, status, fetcher))
     }
 
@@ -151,13 +173,13 @@ impl QueryClient {
 /// shouldn't be a problem because different queries should never have exactly
 /// the same key, but it's worth noting.
 ///
-pub fn use_query<K, T, E, F, R>(
-    cx: Scope<'_>,
+pub fn use_query<'a, K, T, E, F, R>(
+    cx: Scope<'a>,
     key: K,
     fetcher: F,
-) -> Query<'_, T, E, impl Fn() + '_>
+) -> Query<'a, T, E, impl Fn() + 'a>
 where
-    K: AsKey,
+    K: AsKey + 'a,
     F: Fn() -> R + 'static,
     R: Future<Output = Result<T, E>> + 'static,
     T: 'static,
@@ -168,28 +190,25 @@ where
 
 /// Use a query to fetch remote data with extra options.
 /// For more information see [`use_query`] and [`QueryOptions`].
-pub fn use_query_with_options<K, T, E, F, R>(
-    cx: Scope<'_>,
+pub fn use_query_with_options<'a, K, T, E, F, R>(
+    cx: Scope<'a>,
     key: K,
     fetcher: F,
     options: QueryOptions,
-) -> Query<'_, T, E, impl Fn() + '_>
+) -> Query<'a, T, E, impl Fn() + 'a>
 where
-    K: AsKey,
+    K: AsKey + 'a,
     F: Fn() -> R + 'static,
     R: Future<Output = Result<T, E>> + 'static,
     T: 'static,
     E: 'static,
 {
-    let key = key.as_key();
+    let id = key.as_key();
 
     let client = use_context::<Rc<QueryClient>>(cx).clone();
-    let debug = create_rc_signal("".to_string());
-    let (data, status, fetcher) = if let Some(query) = client.find_query(&key) {
-        debug.modify().push_str("\nQuery already exists");
+    let (data, status, fetcher) = if let Some(query) = client.find_query(&id) {
         query
     } else {
-        debug.modify().push_str("\nCreating query");
         let data: Rc<DataSignal> = as_rc(create_rc_signal(QueryData::Loading));
         let status = as_rc(create_rc_signal(Status::Idle));
         let fetcher: Fetcher = Rc::new(move || {
@@ -200,20 +219,16 @@ where
                     .map_err(|err| -> Rc<dyn Any> { Rc::new(err) })
             })
         });
-        client.insert_query(key.clone(), data.clone(), status.clone(), fetcher.clone());
+        client.insert_query(id.clone(), data.clone(), status.clone(), fetcher.clone());
         (data, status, fetcher)
     };
 
-    client.clone().run_query(
-        &key,
-        data.clone(),
-        status.clone(),
-        fetcher.clone(),
-        &options,
-    );
+    client
+        .clone()
+        .run_query(&id, data.clone(), status.clone(), fetcher.clone(), &options);
 
     let refetch = create_ref(cx, move || {
-        client.clone().refetch_query(&key);
+        client.clone().refetch_query(&id);
     });
     let data = create_memo(cx, move || match data.get().as_ref() {
         QueryData::Loading => QueryData::Loading,
@@ -225,6 +240,5 @@ where
         data,
         status,
         refetch,
-        debug,
     }
 }

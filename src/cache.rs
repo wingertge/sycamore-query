@@ -46,7 +46,7 @@ impl QueryCache {
 
     pub fn invalidate_keys(&mut self, keys: &[&[u64]]) {
         self.inner
-            .retain(|key, _| keys.iter().any(|&prefix| key.starts_with(prefix)));
+            .retain(|key, _| !keys.iter().any(|&prefix| key.starts_with(prefix)));
     }
 
     pub fn collect_garbage(&mut self) {

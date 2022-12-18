@@ -10,3 +10,4 @@ sycamore = { version = "0.8", features = ["suspense"] }
 fnv = "1"
 weak-table = "0.3"
 fluvio-wasm-timer = "0.2"
+log = "0.4"

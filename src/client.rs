@@ -153,8 +153,20 @@ impl QueryClient {
             .map(|query| query.as_slice())
             .collect::<Vec<_>>();
         self.cache.write().unwrap().invalidate_keys(&queries);
-        for &query in &queries {
+        log::info!(
+            "Invalidating queries: {queries:?}. Queries in cache: {:?}",
+            self.data_signals.read().unwrap().keys().collect::<Vec<_>>()
+        );
+        for query in self
+            .data_signals
+            .read()
+            .unwrap()
+            .keys()
+            .filter(|k| queries.iter().any(|key| k.starts_with(key)))
+        {
+            log::info!("Updating query {query:?}");
             if let Some((data, status, fetcher)) = self.find_query(query) {
+                log::info!("Query present. Running fetch.");
                 self.clone()
                     .run_query(query, data, status, fetcher, &QueryOptions::default());
             }
