@@ -1,4 +1,4 @@
-use crate::client::QueryOptions;
+use crate::client::ClientOptions;
 use fnv::FnvHashMap;
 use std::{
     any::Any,
@@ -20,10 +20,10 @@ pub struct QueryCache {
 }
 
 impl QueryCache {
-    pub fn get(&self, id: &[u64], options: &QueryOptions) -> Option<Rc<dyn Any>> {
+    pub fn get(&self, id: &[u64]) -> Option<Rc<dyn Any>> {
         let entry = self.inner.get(id)?;
         let age = Instant::now().duration_since(entry.created_at);
-        if age > options.cache_expiration {
+        if age > entry.lifetime {
             None
         } else {
             Some(entry.value.clone())
@@ -34,7 +34,7 @@ impl QueryCache {
         &mut self,
         id: Vec<u64>,
         value: Rc<dyn Any>,
-        options: &QueryOptions,
+        options: &ClientOptions,
     ) -> Rc<dyn Any> {
         self.inner.insert(
             id,

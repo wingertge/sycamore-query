@@ -2,7 +2,7 @@ use crate::{
     as_rc, client::QueryOptions, AsKey, DataSignal, Fetcher, QueryClient, QueryData, Status,
 };
 use futures_timer::Delay;
-use std::{any::Any, time::Duration};
+use std::any::Any;
 use std::{future::Future, rc::Rc};
 use sycamore::{
     futures::spawn_local,
@@ -49,9 +49,10 @@ impl QueryClient {
         fetcher: Fetcher,
         options: &QueryOptions,
     ) {
+        let options = self.default_options.merge(options);
         if let Some(cached) = {
             let cache = self.cache.read().unwrap();
-            cache.get(&key, options)
+            cache.get(&key)
         } {
             data.set(QueryData::Ok(cached));
             self.clone().invalidate_queries(&vec![key]);
@@ -62,13 +63,10 @@ impl QueryClient {
             spawn_local(async move {
                 let mut res = fetcher().await;
                 let mut retries = 0;
-                while let Err(err) = res {
-                    if retries >= options.retries {
-                        break;
-                    }
-                    let delay = Duration::from_secs((1 ^ (2 * retries)).clamp(0, 30) as u64);
-                    Delay::new(delay).await;
+                while res.is_err() && retries < options.retries {
+                    Delay::new((options.retry_fn)(retries)).await;
                     res = fetcher().await;
+                    retries += 1;
                 }
                 data.set(res.map_or_else(|err| QueryData::Err(err), |data| QueryData::Ok(data)));
                 if let QueryData::Ok(data) = data.get().as_ref() {
