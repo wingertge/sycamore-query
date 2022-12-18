@@ -8,6 +8,5 @@ edition = "2021"
 [dependencies]
 sycamore = { version = "0.8", features = ["suspense"] }
 fnv = "1"
-prehash = "0.3"
 weak-table = "0.3"
 futures-timer = "3"

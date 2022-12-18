@@ -9,9 +9,32 @@ use sycamore::{
     reactive::{create_memo, create_rc_signal, create_ref, use_context, ReadSignal, Scope, Signal},
 };
 
+/// The struct representing a query
+///
+/// # Example
+///
+/// ```
+/// # use sycamore::prelude::*;
+/// # use sycamore_query::{*, query::{Query, use_query}};
+/// # #[component]
+/// # pub fn App<G: Html>(cx: Scope) -> View<G> {
+/// #   provide_context(cx, QueryClient::new(ClientOptions::default()));
+/// let Query { data, status, refetch } = use_query(
+///     cx,
+///     ("hello", "World"),
+///     || async { Result::<_, ()>::Ok("World".to_string()) }
+/// );
+///
+/// # view! { cx, }
+/// # }
+/// ```
 pub struct Query<'a, T, E, F: Fn()> {
+    /// The data returned by the query. See [`QueryData`].
     pub data: &'a ReadSignal<QueryData<Rc<T>, Rc<E>>>,
+    /// The status of the query. See [`Status`].
     pub status: Rc<Signal<Status>>,
+    /// A function to trigger a refetch of the query and all queries with the
+    /// same key.
     pub refetch: &'a F,
 }
 
@@ -55,7 +78,7 @@ impl QueryClient {
             cache.get(&key)
         } {
             data.set(QueryData::Ok(cached));
-            self.clone().invalidate_queries(&vec![key]);
+            self.clone().invalidate_queries(vec![key.to_vec()]);
         } else if *status.get() != Status::Fetching {
             status.set(Status::Fetching);
             let options = options.clone();
@@ -81,10 +104,51 @@ impl QueryClient {
     }
 
     pub fn refetch_query<'a>(self: Rc<Self>, key: &[u64]) {
-        self.invalidate_queries(&vec![key]);
+        self.invalidate_queries(vec![key.to_vec()]);
     }
 }
 
+/// Use a query to load remote data and keep it up to date.
+///
+/// # Parameters
+///
+/// * `cx` - The Scope of the containing component
+/// * `key` - A unique key for this query. Any queries sharing this key will
+/// have the same data and status signals. If your query takes arguments, it's
+/// expected to add them to the key tuple. Keys in your key tuple only need to
+/// implement `Hash`. Using a key tuple is preferrable to using a formatted
+/// string because the tuple allows for invalidating groups of queries that share
+/// the same top level key.
+/// * `fetcher` - The asynchronous function used to fetch the data. This needs
+/// to be static because it's stored and automatically rerun if the data in the
+/// cache is stale or the query is invalidated.
+///
+/// # Example
+///
+/// ```
+/// # use sycamore::prelude::*;
+/// # use sycamore_query::{*, query::{Query, use_query}};
+/// # #[component]
+/// # pub fn App<G: Html>(cx: Scope) -> View<G> {
+/// #   provide_context(cx, QueryClient::new(ClientOptions::default()));
+/// let Query { data, status, refetch } = use_query(
+///     cx,
+///     ("hello", "World"),
+///     || async { Result::<_, ()>::Ok("World".to_string()) }
+/// );
+///
+/// # view! { cx, }
+/// # }
+/// ```
+///
+/// # Notes
+///
+/// This will crash your application if two queries with the same key but different
+/// types are used. Data is stored as `Rc<dyn Any>` internally and downcast for
+/// each `use_query` invocation. If the type doesn't match, it will panic. This
+/// shouldn't be a problem because different queries should never have exactly
+/// the same key, but it's worth noting.
+///
 pub fn use_query<'a, K, T, E, F, R>(
     cx: Scope<'a>,
     key: K,
@@ -100,6 +164,8 @@ where
     use_query_with_options(cx, key, fetcher, QueryOptions::default())
 }
 
+/// Use a query to fetch remote data with extra options.
+/// For more information see [`use_query`] and [`QueryOptions`].
 pub fn use_query_with_options<'a, K, T, E, F, R>(
     cx: Scope<'a>,
     key: K,
