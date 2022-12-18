@@ -38,7 +38,7 @@ pub struct Mutation<'a, T, E, Args> {
 }
 
 impl QueryClient {
-    pub fn run_mutation<'a, T, E, Mutate, R, Args, Success>(
+    pub(crate) fn run_mutation<'a, T, E, Mutate, R, Args, Success>(
         &self,
         cx: Scope<'a>,
         data: &'a Signal<QueryData<Rc<T>, Rc<E>>>,
@@ -52,7 +52,6 @@ impl QueryClient {
         Success: Fn(Rc<QueryClient>, Rc<T>),
         Args: 'a,
     {
-        let ctx = cx.clone();
         status.set(Status::Fetching);
         spawn_local_scoped(cx, async move {
             let res = mutator(args).await;
@@ -61,7 +60,7 @@ impl QueryClient {
                 |data| QueryData::Ok(Rc::new(data)),
             ));
             if let QueryData::Ok(ok) = data.get().as_ref() {
-                let client = use_context::<Rc<QueryClient>>(ctx);
+                let client = use_context::<Rc<QueryClient>>(cx);
                 on_success(client.clone(), ok.clone());
             }
             status.set(Status::Success);

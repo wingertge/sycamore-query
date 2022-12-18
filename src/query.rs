@@ -64,10 +64,10 @@ impl QueryClient {
         self.fetchers.write().unwrap().insert(key, fetcher);
     }
 
-    pub fn run_query(
+    pub(crate) fn run_query(
         self: Rc<Self>,
         key: &[u64],
-        data: Rc<Signal<QueryData<Rc<dyn Any>, Rc<dyn Any>>>>,
+        data: Rc<DataSignal>,
         status: Rc<Signal<Status>>,
         fetcher: Fetcher,
         options: &QueryOptions,
@@ -75,13 +75,12 @@ impl QueryClient {
         let options = self.default_options.merge(options);
         if let Some(cached) = {
             let cache = self.cache.read().unwrap();
-            cache.get(&key)
+            cache.get(key)
         } {
             data.set(QueryData::Ok(cached));
             self.clone().invalidate_queries(vec![key.to_vec()]);
         } else if *status.get() != Status::Fetching {
             status.set(Status::Fetching);
-            let options = options.clone();
             let key = key.to_vec();
             spawn_local(async move {
                 let mut res = fetcher().await;
@@ -91,7 +90,7 @@ impl QueryClient {
                     res = fetcher().await;
                     retries += 1;
                 }
-                data.set(res.map_or_else(|err| QueryData::Err(err), |data| QueryData::Ok(data)));
+                data.set(res.map_or_else(QueryData::Err, QueryData::Ok));
                 if let QueryData::Ok(data) = data.get().as_ref() {
                     self.cache
                         .write()
@@ -103,7 +102,7 @@ impl QueryClient {
         }
     }
 
-    pub fn refetch_query<'a>(self: Rc<Self>, key: &[u64]) {
+    pub(crate) fn refetch_query(self: Rc<Self>, key: &[u64]) {
         self.invalidate_queries(vec![key.to_vec()]);
     }
 }
@@ -149,11 +148,11 @@ impl QueryClient {
 /// shouldn't be a problem because different queries should never have exactly
 /// the same key, but it's worth noting.
 ///
-pub fn use_query<'a, K, T, E, F, R>(
-    cx: Scope<'a>,
+pub fn use_query<K, T, E, F, R>(
+    cx: Scope<'_>,
     key: K,
     fetcher: F,
-) -> Query<'a, T, E, impl Fn() + 'a>
+) -> Query<'_, T, E, impl Fn() + '_>
 where
     K: AsKey,
     F: Fn() -> R + 'static,
@@ -166,12 +165,12 @@ where
 
 /// Use a query to fetch remote data with extra options.
 /// For more information see [`use_query`] and [`QueryOptions`].
-pub fn use_query_with_options<'a, K, T, E, F, R>(
-    cx: Scope<'a>,
+pub fn use_query_with_options<K, T, E, F, R>(
+    cx: Scope<'_>,
     key: K,
     fetcher: F,
     options: QueryOptions,
-) -> Query<'a, T, E, impl Fn() + 'a>
+) -> Query<'_, T, E, impl Fn() + '_>
 where
     K: AsKey,
     F: Fn() -> R + 'static,
@@ -185,8 +184,7 @@ where
     let (data, status, fetcher) = if let Some(query) = client.find_query(&key) {
         query
     } else {
-        let data: Rc<Signal<QueryData<Rc<dyn Any>, Rc<dyn Any>>>> =
-            as_rc(create_rc_signal(QueryData::Loading));
+        let data: Rc<DataSignal> = as_rc(create_rc_signal(QueryData::Loading));
         let status = as_rc(create_rc_signal(Status::Fetching));
         let fetcher: Fetcher = Rc::new(move || {
             let fut = fetcher();

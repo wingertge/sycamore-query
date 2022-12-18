@@ -1,3 +1,76 @@
+//! Provides `react-query`/`tanstack-query` style hooks for `sycamore`.
+//! I aim to eventually have mostly feature parity, but the project is currently
+//! in an MVP (minimum viable product) state. This means the basic functionality
+//! works (caching, background fetching, invalidations, mutations, refetching),
+//! but most of the configurability and automatic refetching on window events
+//! is missing. If you need a specific feature or configuration option, feel
+//! free to open an issue or even a PR and I'll know to prioritise it.
+//!
+//! # Usage
+//!
+//! To use the library you need to provide it with a [`QueryClient`] as a context.
+//! This is ideally done in your top level component or index view so your cache
+//! is global. If you want to have separate caches for different parts of your
+//! app it could make sense to set multiple [`QueryClient`]s.
+//!
+//! ```
+//! # use sycamore::prelude::*;
+//! use sycamore_query::{QueryClient, ClientOptions};
+//!
+//! #[component]
+//! pub fn App<G: Html>(cx: Scope) -> View<G> {
+//!     provide_context(cx, QueryClient::new(ClientOptions::default()));
+//!     
+//!     view! { cx, }
+//! }
+//! ```
+//!
+//! Now you can use [`use_query`](crate::query::use_query) and
+//! [`use_mutation`](crate::mutation::use_mutation) from any of your components.
+//!
+//! ```
+//! # use sycamore::prelude::*;
+//! # use sycamore_query::{QueryClient, ClientOptions};
+//! use sycamore_query::{QuerySignalExt, QueryData, query::{use_query, Query}};
+//!
+//! # mod api {
+//! #   use std::rc::Rc;
+//! #   pub async fn hello(name: Rc<String>) -> Result<String, String> {
+//! #       Ok(name.to_string())
+//! #   }
+//! # }
+//!
+//! #[component]
+//! pub fn Hello<G: Html>(cx: Scope) -> View<G> {
+//! #   provide_context(cx, QueryClient::new(ClientOptions::default()));
+//!     let name = create_rc_signal("World".to_string());
+//!     let Query { data, status, refetch } = use_query(
+//!         cx,
+//!         ("hello", name.get()),
+//!         move || api::hello(name.get())
+//!     );
+//!
+//!     match data.get_data() {
+//!         QueryData::Loading => view! { cx, p { "Loading..." } },
+//!         QueryData::Ok(message) => view! { cx, p { (message) } },
+//!         QueryData::Err(err) => view! { cx, p { "An error has occured: " } p { (err) } }
+//!     }
+//! }
+//! ```
+//!
+//! This will fetch the data in the background and handle all sorts of things
+//! for you: retrying on error (up to 3 times by default), caching, updating when
+//! a mutation invalidates the query or another query with the same key fetches
+//! the data, etc.
+//!
+//! # More information
+//!
+//! I don't have the time to write an entire book on this library right now, so just
+//! check out the `react-query` docs and the type level docs for Rust-specific
+//! details, keeping in mind only a subset of `react-query` is currently implemented.
+
+#![warn(missing_docs)]
+
 use std::{
     any::Any,
     future::Future,
@@ -11,7 +84,9 @@ use sycamore::reactive::{RcSignal, ReadSignal, Signal};
 
 mod cache;
 mod client;
+/// Mutation related functions and types
 pub mod mutation;
+/// Query related functions and types
 pub mod query;
 
 pub use client::*;
@@ -52,6 +127,8 @@ pub(crate) type DataSignal = Signal<QueryData<Rc<dyn Any>, Rc<dyn Any>>>;
 /// ```
 /// }
 pub trait AsKey {
+    /// Internal function to convert the type to a key for use in the query cache
+    /// and notifier list.
     fn as_key(&self) -> Vec<u64>;
 }
 
@@ -121,8 +198,14 @@ impl_as_key_tuple!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12);
 ///
 #[derive(Clone)]
 pub enum QueryData<T, E> {
+    /// No query data is available yet
     Loading,
+    /// Query data was successfully fetched and is available. Note this
+    /// might be stale data, check `QueryStatus` if you need to verify whether the
+    /// query is currently fetching fresh data.
     Ok(T),
+    /// Query data still wasn't able to be fetched after the retry strategy
+    /// was exhausted. This contains the backing error.
     Err(E),
 }
 
@@ -137,8 +220,12 @@ pub enum QueryData<T, E> {
 /// * `Idle` - Query is disabled from running.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Status {
+    /// Query data is currently being fetched. This might be because
+    /// no data is available ([`QueryData::Loading`]) or because the data is
     Fetching,
+    /// Query data is available and fresh.
     Success,
+    /// Query is disabled from running.
     Idle,
 }
 
