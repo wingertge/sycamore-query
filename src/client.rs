@@ -7,7 +7,7 @@ use std::{
 use sycamore::reactive::Signal;
 use weak_table::WeakValueHashMap;
 
-use crate::{cache::QueryCache, AsKey, DataSignal, Fetcher, QueryData, Status};
+use crate::{cache::QueryCache, AsKeys, DataSignal, Fetcher, QueryData, Status};
 
 /// Global query options.
 /// These can be overridden on a per query basis with [`QueryOptions`].
@@ -165,7 +165,7 @@ impl QueryClient {
             .filter(|k| queries.iter().any(|key| k.starts_with(key)))
         {
             log::info!("Updating query {query:?}");
-            if let Some((data, status, fetcher)) = self.find_query(query) {
+            if let Some((data, status, fetcher)) = self.find_query(query, false) {
                 log::info!("Query present. Running fetch.");
                 self.clone()
                     .run_query(query, data, status, fetcher, &QueryOptions::default());
@@ -193,15 +193,15 @@ impl QueryClient {
 
     /// Fetch query data from the cache if it exists. If it doesn't or the data
     /// is expired, this will return `None`.
-    pub fn query_data<K: AsKey, T: 'static>(&self, key: K) -> Option<Rc<T>> {
-        let data = self.cache.read().unwrap().get(&key.as_key())?;
+    pub fn query_data<K: AsKeys, T: 'static>(&self, key: K) -> Option<Rc<T>> {
+        let data = self.cache.read().unwrap().get(&key.as_keys())?;
         Some(data.clone().downcast().unwrap())
     }
 
     /// Override the query data in the cache for a given key. This will update
     /// all queries with the same key automatically to reflect the new data.
-    pub fn set_query_data<K: AsKey, T: 'static>(&self, key: K, value: T) {
-        let key = key.as_key();
+    pub fn set_query_data<K: AsKeys, T: 'static>(&self, key: K, value: T) {
+        let key = key.as_keys();
         let value = Rc::new(value);
         if let Some(data) = self.data_signals.read().unwrap().get(&key) {
             data.set(QueryData::Ok(value.clone()))

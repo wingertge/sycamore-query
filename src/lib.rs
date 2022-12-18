@@ -126,38 +126,38 @@ pub(crate) type DataSignal = Signal<QueryData<Rc<dyn Any>, Rc<dyn Any>>>;
 /// }
 /// ```
 /// }
-pub trait AsKey {
+pub trait AsKeys {
     /// Internal function to convert the type to a key for use in the query cache
     /// and notifier list.
-    fn as_key(&self) -> Vec<u64>;
+    fn as_keys(&self) -> Vec<u64>;
 }
 
-impl AsKey for str {
-    fn as_key(&self) -> Vec<u64> {
+impl AsKeys for str {
+    fn as_keys(&self) -> Vec<u64> {
         let mut hash = FnvHasher::default();
         self.hash(&mut hash);
         vec![hash.finish()]
     }
 }
 
-impl AsKey for &str {
-    fn as_key(&self) -> Vec<u64> {
+impl AsKeys for &str {
+    fn as_keys(&self) -> Vec<u64> {
         let mut hash = FnvHasher::default();
         self.hash(&mut hash);
         vec![hash.finish()]
     }
 }
 
-impl AsKey for String {
-    fn as_key(&self) -> Vec<u64> {
-        self.as_str().as_key()
+impl AsKeys for String {
+    fn as_keys(&self) -> Vec<u64> {
+        self.as_str().as_keys()
     }
 }
 
 macro_rules! impl_as_key_tuple {
     ($($ty:ident),*) => {
-        impl<$($ty: Hash),*> AsKey for ($($ty),*) {
-            fn as_key(&self) -> Vec<u64> {
+        impl<$($ty: Hash),*> AsKeys for ($($ty),*) {
+            fn as_keys(&self) -> Vec<u64> {
                 #[allow(non_snake_case)]
                 let ($($ty),*) = self;
                 vec![$(

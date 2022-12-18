@@ -6,7 +6,10 @@ use std::any::Any;
 use std::{future::Future, rc::Rc};
 use sycamore::{
     futures::spawn_local,
-    reactive::{create_memo, create_rc_signal, create_ref, use_context, ReadSignal, Scope, Signal},
+    reactive::{
+        create_effect, create_memo, create_rc_signal, create_ref, create_selector, use_context,
+        ReadSignal, Scope, Signal,
+    },
 };
 
 /// The struct representing a query
@@ -42,6 +45,7 @@ impl QueryClient {
     pub(crate) fn find_query(
         &self,
         key: &[u64],
+        new_hook: bool,
     ) -> Option<(Rc<DataSignal>, Rc<Signal<Status>>, Fetcher)> {
         let data = self.data_signals.read().unwrap().get(key);
         let status = self.status_signals.read().unwrap().get(key);
@@ -55,18 +59,22 @@ impl QueryClient {
                     QueryData::Loading
                 };
                 let data = as_rc(create_rc_signal(data));
-                self.data_signals
-                    .write()
-                    .unwrap()
-                    .insert(key.to_vec(), data.clone());
+                if new_hook {
+                    self.data_signals
+                        .write()
+                        .unwrap()
+                        .insert(key.to_vec(), data.clone());
+                }
                 Some((data, status))
             }
             (Some(data), None) => {
                 let status = as_rc(create_rc_signal(Status::Success));
-                self.status_signals
-                    .write()
-                    .unwrap()
-                    .insert(key.to_vec(), status.clone());
+                if new_hook {
+                    self.status_signals
+                        .write()
+                        .unwrap()
+                        .insert(key.to_vec(), status.clone());
+                }
                 Some((data, status))
             }
             (Some(data), Some(status)) => Some((data, status)),
@@ -104,7 +112,7 @@ impl QueryClient {
         } {
             data.set(QueryData::Ok(cached));
             self.clone().invalidate_queries(vec![key.to_vec()]);
-        } else if *status.get() != Status::Fetching {
+        } else if *status.get_untracked() != Status::Fetching {
             status.set(Status::Fetching);
             let key = key.to_vec();
             spawn_local(async move {
@@ -116,7 +124,7 @@ impl QueryClient {
                     retries += 1;
                 }
                 data.set(res.map_or_else(QueryData::Err, QueryData::Ok));
-                if let QueryData::Ok(data) = data.get().as_ref() {
+                if let QueryData::Ok(data) = data.get_untracked().as_ref() {
                     self.cache
                         .write()
                         .unwrap()
@@ -142,7 +150,9 @@ impl QueryClient {
 /// expected to add them to the key tuple. Keys in your key tuple only need to
 /// implement `Hash`. Using a key tuple is preferrable to using a formatted
 /// string because the tuple allows for invalidating groups of queries that share
-/// the same top level key.
+/// the same top level key. Why is this a closure instead of a value? Because I need to track the
+/// signals used in it. There is a more ergonomic implementation but it requires specialization or
+/// a change in sycamore's `Hash` implementation.
 /// * `fetcher` - The asynchronous function used to fetch the data. This needs
 /// to be static because it's stored and automatically rerun if the data in the
 /// cache is stale or the query is invalidated.
@@ -175,7 +185,7 @@ impl QueryClient {
 ///
 pub fn use_query<'a, K, T, E, F, R>(
     cx: Scope<'a>,
-    key: K,
+    key: impl Fn() -> K + 'a,
     fetcher: F,
 ) -> Query<'a, T, E, impl Fn() + 'a>
 where
@@ -192,7 +202,7 @@ where
 /// For more information see [`use_query`] and [`QueryOptions`].
 pub fn use_query_with_options<'a, K, T, E, F, R>(
     cx: Scope<'a>,
-    key: K,
+    key: impl Fn() -> K + 'a,
     fetcher: F,
     options: QueryOptions,
 ) -> Query<'a, T, E, impl Fn() + 'a>
@@ -203,10 +213,10 @@ where
     T: 'static,
     E: 'static,
 {
-    let id = key.as_key();
+    let id = create_selector(cx, move || key().as_key());
 
     let client = use_context::<Rc<QueryClient>>(cx).clone();
-    let (data, status, fetcher) = if let Some(query) = client.find_query(&id) {
+    let (data, status, fetcher) = if let Some(query) = client.find_query(&id.get(), true) {
         query
     } else {
         let data: Rc<DataSignal> = as_rc(create_rc_signal(QueryData::Loading));
@@ -219,16 +229,33 @@ where
                     .map_err(|err| -> Rc<dyn Any> { Rc::new(err) })
             })
         });
-        client.insert_query(id.clone(), data.clone(), status.clone(), fetcher.clone());
+        client.insert_query(
+            id.get().as_ref().clone(),
+            data.clone(),
+            status.clone(),
+            fetcher.clone(),
+        );
         (data, status, fetcher)
     };
 
-    client
-        .clone()
-        .run_query(&id, data.clone(), status.clone(), fetcher.clone(), &options);
+    {
+        let client = client.clone();
+        let data = data.clone();
+        let status = status.clone();
+        create_effect(cx, move || {
+            log::info!("Key changed. New key: {:?}", id.get());
+            client.clone().run_query(
+                &id.get(),
+                data.clone(),
+                status.clone(),
+                fetcher.clone(),
+                &options,
+            );
+        });
+    }
 
     let refetch = create_ref(cx, move || {
-        client.clone().refetch_query(&id);
+        client.clone().refetch_query(&id.get());
     });
     let data = create_memo(cx, move || match data.get().as_ref() {
         QueryData::Loading => QueryData::Loading,
