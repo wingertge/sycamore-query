@@ -20,7 +20,6 @@ pub use client::QueryClient;
 pub(crate) type Fetcher =
     Rc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<Rc<dyn Any>, Rc<dyn Any>>>>>>;
 pub(crate) type DataSignal = Signal<QueryData<Rc<dyn Any>, Rc<dyn Any>>>;
-pub(crate) type DynQueryData = QueryData<Rc<dyn Any>, Rc<dyn Any>>;
 
 pub trait AsKey {
     fn as_key(&self) -> Vec<u64>;

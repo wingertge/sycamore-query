@@ -7,11 +7,12 @@ use std::{
 use sycamore::reactive::Signal;
 use weak_table::WeakValueHashMap;
 
-use crate::{cache::QueryCache, AsKey, DataSignal, DynQueryData, Fetcher, QueryData, Status};
+use crate::{cache::QueryCache, AsKey, DataSignal, Fetcher, Status};
 
 #[derive(Clone)]
 pub struct QueryOptions {
     pub cache_expiration: Duration,
+    pub retries: u32,
 }
 
 impl Default for QueryOptions {
@@ -64,31 +65,19 @@ impl QueryClient {
             .retain(|k, _| queries.contains_key(k));
     }
 
-    pub fn query_data<K: AsKey, T: 'static, E: 'static>(
-        &self,
-        key: K,
-    ) -> Option<QueryData<Rc<T>, Rc<E>>> {
+    pub fn query_data<K: AsKey, T: 'static>(&self, key: K) -> Option<Rc<T>> {
         let data = self
             .cache
             .read()
             .unwrap()
             .get(&key.as_key(), &QueryOptions::default())?;
-        Some(match data.as_ref() {
-            QueryData::Loading => QueryData::Loading,
-            QueryData::Ok(ok) => QueryData::Ok(ok.clone().downcast().unwrap()),
-            QueryData::Err(err) => QueryData::Err(err.clone().downcast().unwrap()),
-        })
+        Some(data.clone().downcast().unwrap())
     }
 
-    pub fn set_query_data<K: AsKey, T: 'static, E: 'static>(&self, key: K, value: QueryData<T, E>) {
-        let value: Rc<DynQueryData> = Rc::new(match value {
-            QueryData::Loading => QueryData::Loading,
-            QueryData::Ok(ok) => QueryData::Ok(Rc::new(ok)),
-            QueryData::Err(err) => QueryData::Err(Rc::new(err)),
-        });
+    pub fn set_query_data<K: AsKey, T: 'static>(&self, key: K, value: T) {
         self.cache
             .write()
             .unwrap()
-            .insert(key.as_key(), value, &QueryOptions::default());
+            .insert(key.as_key(), Rc::new(value), &QueryOptions::default());
     }
 }

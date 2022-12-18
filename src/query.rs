@@ -1,7 +1,8 @@
 use crate::{
     as_rc, client::QueryOptions, AsKey, DataSignal, Fetcher, QueryClient, QueryData, Status,
 };
-use std::any::Any;
+use futures_timer::Delay;
+use std::{any::Any, time::Duration};
 use std::{future::Future, rc::Rc};
 use sycamore::{
     futures::spawn_local,
@@ -52,19 +53,30 @@ impl QueryClient {
             let cache = self.cache.read().unwrap();
             cache.get(&key, options)
         } {
-            data.set_rc(cached);
+            data.set(QueryData::Ok(cached));
             self.clone().invalidate_queries(&vec![key]);
         } else if *status.get() != Status::Fetching {
             status.set(Status::Fetching);
             let options = options.clone();
             let key = key.to_vec();
             spawn_local(async move {
-                let res = fetcher().await;
+                let mut res = fetcher().await;
+                let mut retries = 0;
+                while let Err(err) = res {
+                    if retries >= options.retries {
+                        break;
+                    }
+                    let delay = Duration::from_secs((1 ^ (2 * retries)).clamp(0, 30) as u64);
+                    Delay::new(delay).await;
+                    res = fetcher().await;
+                }
                 data.set(res.map_or_else(|err| QueryData::Err(err), |data| QueryData::Ok(data)));
-                self.cache
-                    .write()
-                    .unwrap()
-                    .insert(key, data.get().clone(), &options);
+                if let QueryData::Ok(data) = data.get().as_ref() {
+                    self.cache
+                        .write()
+                        .unwrap()
+                        .insert(key, data.clone(), &options);
+                }
                 status.set(Status::Success);
             });
         }

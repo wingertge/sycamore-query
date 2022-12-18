@@ -1,4 +1,4 @@
-use crate::{client::QueryOptions, DynQueryData, QueryData};
+use crate::client::QueryOptions;
 use fnv::FnvHashMap;
 use std::{
     any::Any,
@@ -11,7 +11,7 @@ type Cache = FnvHashMap<Vec<u64>, CacheEntry>;
 pub struct CacheEntry {
     created_at: Instant,
     lifetime: Duration,
-    value: Rc<DynQueryData>,
+    value: Rc<dyn Any>,
 }
 
 #[derive(Default)]
@@ -20,11 +20,7 @@ pub struct QueryCache {
 }
 
 impl QueryCache {
-    pub fn get(
-        &self,
-        id: &[u64],
-        options: &QueryOptions,
-    ) -> Option<Rc<QueryData<Rc<dyn Any>, Rc<dyn Any>>>> {
+    pub fn get(&self, id: &[u64], options: &QueryOptions) -> Option<Rc<dyn Any>> {
         let entry = self.inner.get(id)?;
         let age = Instant::now().duration_since(entry.created_at);
         if age > options.cache_expiration {
@@ -37,9 +33,9 @@ impl QueryCache {
     pub fn insert(
         &mut self,
         id: Vec<u64>,
-        value: Rc<QueryData<Rc<dyn Any>, Rc<dyn Any>>>,
+        value: Rc<dyn Any>,
         options: &QueryOptions,
-    ) -> Rc<QueryData<Rc<dyn Any>, Rc<dyn Any>>> {
+    ) -> Rc<dyn Any> {
         self.inner.insert(
             id,
             CacheEntry {
