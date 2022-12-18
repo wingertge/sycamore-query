@@ -1,5 +1,12 @@
-use std::{any::Any, future::Future, pin::Pin, rc::Rc};
+use std::{
+    any::Any,
+    future::Future,
+    hash::{Hash, Hasher},
+    pin::Pin,
+    rc::Rc,
+};
 
+use fnv::FnvHasher;
 use sycamore::reactive::{RcSignal, ReadSignal, Signal};
 
 mod cache;
@@ -14,6 +21,55 @@ pub(crate) type Fetcher =
     Rc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<Rc<dyn Any>, Rc<dyn Any>>>>>>;
 pub(crate) type DataSignal = Signal<QueryData<Rc<dyn Any>, Rc<dyn Any>>>;
 pub(crate) type DynQueryData = QueryData<Rc<dyn Any>, Rc<dyn Any>>;
+
+pub trait AsKey {
+    fn as_key(&self) -> Vec<u64>;
+}
+
+impl AsKey for str {
+    fn as_key(&self) -> Vec<u64> {
+        let mut hash = FnvHasher::default();
+        self.hash(&mut hash);
+        vec![hash.finish()]
+    }
+}
+
+impl AsKey for String {
+    fn as_key(&self) -> Vec<u64> {
+        self.as_str().as_key()
+    }
+}
+
+macro_rules! impl_as_key_tuple {
+    ($($ty:ident),*) => {
+        impl<$($ty: Hash),*> AsKey for ($($ty),*) {
+            fn as_key(&self) -> Vec<u64> {
+                #[allow(non_snake_case)]
+                let ($($ty),*) = self;
+                vec![$(
+                    {
+                        let mut hash = FnvHasher::default();
+                        $ty.hash(&mut hash);
+                        hash.finish()
+                    }
+                ),*]
+            }
+        }
+    };
+}
+
+// Implement for tuples up to 12 long
+impl_as_key_tuple!(T1, T2);
+impl_as_key_tuple!(T1, T2, T3);
+impl_as_key_tuple!(T1, T2, T3, T4);
+impl_as_key_tuple!(T1, T2, T3, T4, T5);
+impl_as_key_tuple!(T1, T2, T3, T4, T5, T6);
+impl_as_key_tuple!(T1, T2, T3, T4, T5, T6, T7);
+impl_as_key_tuple!(T1, T2, T3, T4, T5, T6, T7, T8);
+impl_as_key_tuple!(T1, T2, T3, T4, T5, T6, T7, T8, T9);
+impl_as_key_tuple!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10);
+impl_as_key_tuple!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11);
+impl_as_key_tuple!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12);
 
 #[derive(Clone)]
 pub enum QueryData<T, E> {

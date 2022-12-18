@@ -1,18 +1,17 @@
-use prehash::{Prehashed, PrehashedMap};
+use crate::{client::QueryOptions, DynQueryData, QueryData};
+use fnv::FnvHashMap;
 use std::{
     any::Any,
     rc::Rc,
     time::{Duration, Instant},
 };
 
-use crate::{client::QueryOptions, QueryData};
-
-type Cache = PrehashedMap<(), CacheEntry>;
+type Cache = FnvHashMap<Vec<u64>, CacheEntry>;
 
 pub struct CacheEntry {
     created_at: Instant,
     lifetime: Duration,
-    value: Rc<QueryData<Rc<dyn Any>, Rc<dyn Any>>>,
+    value: Rc<DynQueryData>,
 }
 
 #[derive(Default)]
@@ -23,11 +22,10 @@ pub struct QueryCache {
 impl QueryCache {
     pub fn get(
         &self,
-        id: u64,
+        id: &[u64],
         options: &QueryOptions,
     ) -> Option<Rc<QueryData<Rc<dyn Any>, Rc<dyn Any>>>> {
-        let key = Prehashed::new((), id);
-        let entry = self.inner.get(&key)?;
+        let entry = self.inner.get(id)?;
         let age = Instant::now().duration_since(entry.created_at);
         if age > options.cache_expiration {
             None
@@ -38,12 +36,12 @@ impl QueryCache {
 
     pub fn insert(
         &mut self,
-        id: u64,
+        id: Vec<u64>,
         value: Rc<QueryData<Rc<dyn Any>, Rc<dyn Any>>>,
         options: &QueryOptions,
     ) -> Rc<QueryData<Rc<dyn Any>, Rc<dyn Any>>> {
         self.inner.insert(
-            Prehashed::new((), id),
+            id,
             CacheEntry {
                 created_at: Instant::now(),
                 lifetime: options.cache_expiration,
@@ -53,9 +51,9 @@ impl QueryCache {
         value
     }
 
-    pub fn invalidate_keys(&mut self, keys: &[u64]) {
+    pub fn invalidate_keys(&mut self, keys: &[&[u64]]) {
         self.inner
-            .retain(|key, _| keys.contains(Prehashed::<()>::as_hash(key)))
+            .retain(|key, _| keys.iter().any(|&prefix| key.starts_with(prefix)));
     }
 
     pub fn collect_garbage(&mut self) {

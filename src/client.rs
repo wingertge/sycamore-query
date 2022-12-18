@@ -1,17 +1,13 @@
+use fnv::{FnvBuildHasher, FnvHashMap};
 use std::{
-    hash::Hasher,
     rc::{Rc, Weak},
     sync::RwLock,
     time::Duration,
 };
-
-use fnv::FnvHasher;
-use prehash::{Prehashed, PrehashedMap};
-use std::hash::Hash;
 use sycamore::reactive::Signal;
 use weak_table::WeakValueHashMap;
 
-use crate::{cache::QueryCache, DataSignal, DynQueryData, Fetcher, QueryData, Status};
+use crate::{cache::QueryCache, AsKey, DataSignal, DynQueryData, Fetcher, QueryData, Status};
 
 #[derive(Clone)]
 pub struct QueryOptions {
@@ -26,13 +22,15 @@ impl Default for QueryOptions {
     }
 }
 
+type WeakFnvMap<T> = WeakValueHashMap<Vec<u64>, Weak<T>, FnvBuildHasher>;
+
 #[derive(Default)]
 pub struct QueryClient {
     pub default_options: QueryOptions,
     pub(crate) cache: RwLock<QueryCache>,
-    pub(crate) data_signals: RwLock<WeakValueHashMap<Prehashed<()>, Weak<DataSignal>>>,
-    pub(crate) status_signals: RwLock<WeakValueHashMap<Prehashed<()>, Weak<Signal<Status>>>>,
-    pub(crate) fetchers: RwLock<PrehashedMap<(), Fetcher>>,
+    pub(crate) data_signals: RwLock<WeakFnvMap<DataSignal>>,
+    pub(crate) status_signals: RwLock<WeakFnvMap<Signal<Status>>>,
+    pub(crate) fetchers: RwLock<FnvHashMap<Vec<u64>, Fetcher>>,
 }
 
 impl QueryClient {
@@ -46,9 +44,9 @@ impl QueryClient {
         }
     }
 
-    pub fn invalidate_queries(self: Rc<Self>, queries: Vec<u64>) {
-        self.cache.write().unwrap().invalidate_keys(&queries);
-        for query in queries {
+    pub fn invalidate_queries(self: Rc<Self>, queries: &[&[u64]]) {
+        self.cache.write().unwrap().invalidate_keys(queries);
+        for &query in queries {
             if let Some((data, status, fetcher)) = self.find_query(query) {
                 self.clone()
                     .run_query(query, data, status, fetcher, &self.default_options);
@@ -66,18 +64,15 @@ impl QueryClient {
             .retain(|k, _| queries.contains_key(k));
     }
 
-    pub fn query_data<K: Hash, T: 'static, E: 'static>(
+    pub fn query_data<K: AsKey, T: 'static, E: 'static>(
         &self,
         key: K,
     ) -> Option<QueryData<Rc<T>, Rc<E>>> {
-        let mut hash = FnvHasher::default();
-        key.hash(&mut hash);
-        let key = hash.finish();
         let data = self
             .cache
             .read()
             .unwrap()
-            .get(key, &QueryOptions::default())?;
+            .get(&key.as_key(), &QueryOptions::default())?;
         Some(match data.as_ref() {
             QueryData::Loading => QueryData::Loading,
             QueryData::Ok(ok) => QueryData::Ok(ok.clone().downcast().unwrap()),
@@ -85,10 +80,7 @@ impl QueryClient {
         })
     }
 
-    pub fn set_query_data<K: Hash, T: 'static, E: 'static>(&self, key: K, value: QueryData<T, E>) {
-        let mut hash = FnvHasher::default();
-        key.hash(&mut hash);
-        let key = hash.finish();
+    pub fn set_query_data<K: AsKey, T: 'static, E: 'static>(&self, key: K, value: QueryData<T, E>) {
         let value: Rc<DynQueryData> = Rc::new(match value {
             QueryData::Loading => QueryData::Loading,
             QueryData::Ok(ok) => QueryData::Ok(Rc::new(ok)),
@@ -97,6 +89,6 @@ impl QueryClient {
         self.cache
             .write()
             .unwrap()
-            .insert(key, value, &QueryOptions::default());
+            .insert(key.as_key(), value, &QueryOptions::default());
     }
 }
