@@ -48,8 +48,7 @@ impl ClientOptions {
         Self {
             cache_expiration: query_options
                 .cache_expiration
-                .clone()
-                .unwrap_or_else(|| self.cache_expiration.clone()),
+                .unwrap_or(self.cache_expiration),
             retries: query_options.retries.unwrap_or(self.retries),
             retry_fn: query_options
                 .retry_fn
@@ -136,7 +135,7 @@ impl QueryClient {
     /// Invalidate all queries whose keys start with any of the keys passed in.
     /// For example, passing a top level query ID will invalidate all queries
     /// with that top level ID, regardless of their arguments.
-    /// For passing multiple keys with tuple types, see [`keys!`].
+    /// For passing multiple keys with tuple types, see [`keys!`](crate::keys).
     ///
     /// # Example
     ///
