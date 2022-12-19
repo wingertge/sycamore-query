@@ -125,10 +125,7 @@ impl QueryClient {
     pub fn new(default_options: ClientOptions) -> Rc<Self> {
         Rc::new(Self {
             default_options,
-            cache: Default::default(),
-            data_signals: Default::default(),
-            status_signals: Default::default(),
-            fetchers: Default::default(),
+            ..QueryClient::default()
         })
     }
 
