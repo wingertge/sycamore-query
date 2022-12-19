@@ -344,7 +344,7 @@ pub trait AsKeySignal<T: Hash> {
     /// Creates a reference to the signal that tracks when it's hashed (sycamore uses
     /// [`get_untracked`](sycamore::reactive::ReadSignal) in the [`Hash`](std::hash::Hash)
     /// implementation for signals).
-    fn key<'cx>(&'cx self) -> KeySignal<'cx, T>;
+    fn key(&self) -> KeySignal<'_, T>;
 }
 
 /// Extension to allow for tracking key changes. If I can get some changes into sycamore this should
@@ -372,7 +372,7 @@ pub trait AsRcKeySignal<T: Hash> {
 }
 
 impl<T: Hash> AsKeySignal<T> for ReadSignal<T> {
-    fn key<'cx>(&'cx self) -> KeySignal<'cx, T> {
+    fn key(&self) -> KeySignal<'_, T> {
         KeySignal(self)
     }
 }
