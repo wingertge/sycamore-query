@@ -1,5 +1,5 @@
 use crate::{
-    as_rc, client::QueryOptions, AsKey, DataSignal, Fetcher, QueryClient, QueryData, Status,
+    as_rc, client::QueryOptions, AsKeys, DataSignal, Fetcher, QueryClient, QueryData, Status,
 };
 use fluvio_wasm_timer::Delay;
 use std::any::Any;
@@ -157,6 +157,14 @@ impl QueryClient {
 /// to be static because it's stored and automatically rerun if the data in the
 /// cache is stale or the query is invalidated.
 ///
+/// # Signals in Keys
+///
+/// Currently, Sycamore uses the `untracked_get` function in its [`Hash`](std::hash::Hash)
+/// implementation for signals. This means changes won't be tracked by default. If you want the
+/// query to refetch every time the signal in the key changes, use `signal.key()`/`signal.rc_key()`
+/// from the [`AsKeySignal`](crate::AsKeySignal) and [`AsRcKeySignal`](crate::AsRcKeySignal) traits
+/// respectively.
+///
 /// # Example
 ///
 /// ```
@@ -185,11 +193,11 @@ impl QueryClient {
 ///
 pub fn use_query<'a, K, T, E, F, R>(
     cx: Scope<'a>,
-    key: impl Fn() -> K + 'a,
+    key: K,
     fetcher: F,
 ) -> Query<'a, T, E, impl Fn() + 'a>
 where
-    K: AsKey + 'a,
+    K: AsKeys + 'a,
     F: Fn() -> R + 'static,
     R: Future<Output = Result<T, E>> + 'static,
     T: 'static,
@@ -202,18 +210,18 @@ where
 /// For more information see [`use_query`] and [`QueryOptions`].
 pub fn use_query_with_options<'a, K, T, E, F, R>(
     cx: Scope<'a>,
-    key: impl Fn() -> K + 'a,
+    key: K,
     fetcher: F,
     options: QueryOptions,
 ) -> Query<'a, T, E, impl Fn() + 'a>
 where
-    K: AsKey + 'a,
+    K: AsKeys + 'a,
     F: Fn() -> R + 'static,
     R: Future<Output = Result<T, E>> + 'static,
     T: 'static,
     E: 'static,
 {
-    let id = create_selector(cx, move || key().as_key());
+    let id = create_selector(cx, move || key.as_keys());
 
     let client = use_context::<Rc<QueryClient>>(cx).clone();
     let (data, status, fetcher) = if let Some(query) = client.find_query(&id.get(), true) {

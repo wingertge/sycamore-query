@@ -250,10 +250,10 @@ macro_rules! keys {
 
     [$($key: expr),* $(,)?] => {
         {
-            use $crate::AsKey;
+            use $crate::AsKeys;
             let mut res = ::std::vec::Vec::with_capacity(keys!(@count $($key),*));
             $(
-                res.push($key.as_key());
+                res.push($key.as_keys());
             )*
             res
         }
@@ -301,4 +301,84 @@ pub(crate) fn as_rc<T>(signal: RcSignal<T>) -> Rc<Signal<T>> {
     // should work. This should be replaced with a builtin way to do it.
     let signal: MyRcSignal<T> = unsafe { std::mem::transmute(signal) };
     signal.0
+}
+
+/// Internal type for tracking key changes. Only exposed because it's used in a public trait
+pub struct KeySignal<'cx, T: Hash>(&'cx ReadSignal<T>);
+/// Internal type for tracking key changes. Only exposed because it's used in a public trait
+pub struct RcKeySignal<T: Hash>(RcSignal<T>);
+
+/// Extension to allow for tracking key changes. If I can get some changes into sycamore this should
+/// become redundant
+///
+/// # Usage
+///
+/// ```
+/// # use sycamore::prelude::*;
+/// use sycamore_query::prelude::*;
+/// # #[component]
+/// # pub fn App<G: Html>(cx: Scope) -> View<G> {
+/// # async fn hello(s: String) -> Result<String, String> {
+/// #   Ok(s.to_string())
+/// # }
+///  let signal = create_signal(cx, "Test");
+/// // Updates every time signal changes
+/// use_query(cx, ("hello", signal.key()), move || hello(signal.get().to_string());
+/// # }
+/// ```
+pub trait AsKeySignal<T: Hash> {
+    /// Creates a reference to the signal that tracks when it's hashed (sycamore uses
+    /// [`get_untracked`](sycamore::reactive::ReadSignal) in the [`Hash`](std::hash::Hash)
+    /// implementation for signals).
+    fn key<'cx>(&'cx self) -> KeySignal<'cx, T>;
+}
+
+/// Extension to allow for tracking key changes. If I can get some changes into sycamore this should
+/// become redundant
+///
+/// # Usage
+///
+/// ```
+/// # use sycamore::prelude::*;
+/// use sycamore_query::prelude::*;
+/// # #[component]
+/// # pub fn App<G: Html>(cx: Scope) -> View<G> {
+/// # async fn hello(s: String) -> Result<String, String> {
+/// #   Ok(s.to_string())
+/// # }
+/// let signal = create_rc_signal("Test");
+/// // Updates every time signal changes
+/// use_query(cx, ("hello", signal.clone().rc_key()), move || hello(signal.get().to_string());
+/// # }
+/// ```
+pub trait AsRcKeySignal<T: Hash> {
+    /// Creates a copy of the signal that tracks when it's hashed (sycamore uses `get_untracked`
+    /// in the `Hash` implementation for signals).
+    fn rc_key(self) -> RcKeySignal<T>;
+}
+
+impl<T: Hash> AsKeySignal<T> for ReadSignal<T> {
+    fn key<'cx>(&'cx self) -> KeySignal<'cx, T> {
+        KeySignal(self)
+    }
+}
+
+impl<T: Hash> AsRcKeySignal<T> for RcSignal<T> {
+    fn rc_key(self) -> RcKeySignal<T> {
+        RcKeySignal(self)
+    }
+}
+
+impl<'cx, T: Hash> Hash for KeySignal<'cx, T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.track();
+        self.0.hash(state);
+    }
+}
+
+impl<T: Hash> Hash for RcKeySignal<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.track();
+        self.0.hash(state);
+    }
 }
