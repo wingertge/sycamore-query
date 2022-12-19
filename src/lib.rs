@@ -31,7 +31,7 @@
 //! ```
 //! # use sycamore::prelude::*;
 //! # use sycamore_query::{QueryClient, ClientOptions};
-//! use sycamore_query::{QuerySignalExt, QueryData, query::{use_query, Query}};
+//! use sycamore_query::prelude::*;
 //!
 //! # mod api {
 //! #   use std::rc::Rc;
@@ -88,6 +88,20 @@ mod client;
 pub mod mutation;
 /// Query related functions and types
 pub mod query;
+
+/// The sycamore-query prelude.
+///
+/// In most cases, it is idiomatic to use a glob import (aka wildcard import) at the beginning of
+/// your Rust source file.
+///
+/// ```rust
+/// use sycamore_query::prelude::*;
+/// ```
+pub mod prelude {
+    pub use crate::mutation::{use_mutation, Mutation};
+    pub use crate::query::{use_query, Query};
+    pub use crate::{AsKeySignal, AsRcKeySignal, QueryData, QuerySignalExt, Status};
+}
 
 pub use client::*;
 
