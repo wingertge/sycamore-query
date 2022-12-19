@@ -100,7 +100,7 @@ pub mod query;
 pub mod prelude {
     pub use crate::mutation::{use_mutation, Mutation};
     pub use crate::query::{use_query, Query};
-    pub use crate::{AsKeySignal, AsRcKeySignal, QueryData, QuerySignalExt, Status};
+    pub use crate::{keys, AsKeySignal, AsRcKeySignal, QueryData, QuerySignalExt, Status};
 }
 
 pub use client::*;
